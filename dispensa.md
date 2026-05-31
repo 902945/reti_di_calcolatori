@@ -613,7 +613,7 @@ Quando `rwin = 0`, il mittente invia periodicamente piccoli frame di sonda per d
 Fornisce un servizio di trasporto **non affidabile, senza connessione** su un servizio network layer datagram.
 
 **Caratteristiche**:
-- Dimensione massima del payload: 65.467 byte (65.535 − 8 byte di header UDP − 20 byte di header IP)
+- Dimensione massima del payload: 65.507 byte (65.535 − 8 byte di header UDP − 20 byte di header IP)
 - Non garantisce la consegna
 - Ha error detection (checksum)
 - Senza stato: ogni segmento è indipendente
@@ -624,7 +624,7 @@ Fornisce un servizio di trasporto **non affidabile, senza connessione** su un se
 - 16 bit length (lunghezza totale del segmento)
 - 16 bit checksum
 
-**Porte**: i 16 bit del campo porta consentono un massimo di 65.535 porte per host. Le porte sono divise in:
+**Porte**: i 16 bit del campo porta consentono un massimo di 65.536 porte per host. Le porte sono divise in:
 - **Well-known ports** (0–1023): riservate a processi con privilegi di amministrazione (es. porta 80 per HTTP, 53 per DNS)
 - **Registered ports** (1024–49.151): protocolli che hanno richiesto un numero all'IETF
 - **Dynamic/ephemeral ports** (49.152–65.535): usabili da qualsiasi applicazione
@@ -694,7 +694,7 @@ Client                              Server
 
 **Contenuti dinamici**:
 - Stato corrente della FSM (es. SYN_SENT, SYN_RECEIVED, ESTABLISHED, TIME_WAIT…)
-- `MMS`: Maximum Message Size (può cambiare)
+- `MSS`: Maximum Segment Size (può cambiare)
 - `snd.nxt`: numero di sequenza del prossimo byte da inviare
 - `snd.una`: numero di sequenza dell'ultimo byte inviato ma non ancora confermato
 - `snd.wnd`: dimensione corrente della finestra di invio (ricevuta dall'altro endpoint)
@@ -706,14 +706,14 @@ Per evitare il problema dei "silly small segments" (pacchetti con pochissimi dat
 
 ```python
 # data: byte non ancora inviati (nuovi + nel buffer)
-if len(data) >= MSS and unacknowledged_data < MSS:
+if len(data) >= MSS:
     send one MSS-sized segment
 else:
-    if there are unacknowledged data:
+    if unacknowledged_data == 0:
+        send one TCP segment containing at most snd.wnd data
+    else:
         # aspetta l'ACK prima di inviare altri dati piccoli
         buffer the data
-    else:
-        send one TCP segment containing at most snd.wnd data
 ```
 
 **Conseguenza**: la maggior parte dei pacchetti è di dimensione MSS (tipicamente 1460 byte per Ethernet con MTU 1500) oppure è un ACK (0 byte di payload). L'algoritmo di Nagle riduce l'overhead ma è **inadatto per il traffico real-time** (es. giochi online, VoIP) dove si preferisce la latenza minima anche a costo di pacchetti piccoli.
@@ -805,7 +805,7 @@ Due eventi segnalano la congestione:
    
 2. **Severe congestion** (congestione severa): scadenza del **Retransmission Timeout (RTO)**
    - `ssthresh = cwnd / 2`
-   - `cwnd = 10·MSS` (ripartenza da slow start)
+   - `cwnd = 1·MSS` (ripartenza da slow start)
 
 ### 10.5 Explicit Congestion Notification (ECN)
 
@@ -869,7 +869,7 @@ Il flusso per progettare un sistema sicuro:
 3. Scegliere i **security services** da offrire
 4. Definire un **attacker model** e decidere quali rischi accettare
 5. Scegliere i **meccanismi tecnici** necessari
-6. **Iterare** continuamente il processo (la sicurezza non è uno stato stático)
+6. **Iterare** continuamente il processo (la sicurezza non è uno stato statico)
 
 ---
 
@@ -1110,7 +1110,7 @@ IPv6 è l'evoluzione di IPv4, progettata per risolvere il problema della scarsit
   - `Hop Limit` sostituisce TTL
   - **Nessun supporto alla frammentazione nei router** (solo il mittente può frammentare, usando l'header di estensione Fragment)
 - **ICMPv6** sostituisce ARP e IGMP, oltre a svolgere le funzioni di ICMP
-- Supporto obbligatorio per **IPsec** (encryption)
+- Supporto integrato per **IPsec** (il protocollo è parte dello standard, ma l'uso effettivo della cifratura non è automatico né obbligatorio)
 
 **Struttura di un indirizzo IPv6**:
 - **Global Routing Prefix** (48 bit): identifica l'ISP
@@ -1174,7 +1174,7 @@ OSPF è il principale protocollo di routing **intra-dominio**, basato su Link St
   - **Internal router**: connesso solo ad altri router all'interno della stessa area
   - **Border router** (ABR): appartiene a più aree contemporaneamente
 - **Backbone area** (Area 0): l'area centrale che raccoglie tutti i border router; ogni comunicazione inter-area deve transitare per l'area 0
-- All'interno di ogni area non-backbone, i router distribuiscono la topologia scambiandosi **Link State Packet**
+- All'interno di ogni area non-backbone, i router distribuiscono la topologia scambiandosi **Link State Advertisement** (LSA)
 - Tra aree diverse, il routing usa il meccanismo DV tra i border router
 - Supporta sia IPv4 sia IPv6
 
@@ -1366,7 +1366,7 @@ scheme://[user:password@]host[:port]/path[?query][#fragment]
 - **MSA** (Mail Submission Agent): riceve le email dal MUA del mittente e le passa al primo MTA; gestisce l'autenticazione del mittente
 - **MTA** (Mail Transfer Agent): server che trasferisce le email da un dominio all'altro; usa il protocollo SMTP
 - **MDA** (Mail Delivery Agent): consegna la email nella mailbox del destinatario
-- **MDA server**: rende disponibili le email al MUA del destinatario tramite POP3 o IMAP
+- **MAA** (Mail Access Agent): rende disponibili le email al MUA del destinatario tramite POP3 o IMAP
 
 **Protocolli**:
 - **RFC 5322**: formato dei messaggi email (header e body)
@@ -1437,8 +1437,8 @@ Protocollo testuale basato su TCP (porta 25). Il client invia comandi ASCII; il 
 
 **Servizi offerti da TLS**:
 - **Autenticazione**: tramite certificati X.509
-- **Confidenzialità**: tramite cifratura a chiave simmetrica (AES)
-- **Integrità**: tramite HMAC
+- **Confidenzialità**: tramite cifratura a chiave simmetrica (AES in TLS 1.2; suite AEAD come AES-GCM in TLS 1.3)
+- **Integrità**: tramite HMAC (TLS 1.2); in TLS 1.3 l'integrità è fornita direttamente dalle suite AEAD insieme alla cifratura
 
 **Protocolli "S"**: HTTPS (porta 443), POP3S, IMAPS, SMTPS sono versioni sicure dei protocolli originali, che usano TLS su porte dedicate.
 
@@ -1509,9 +1509,9 @@ Il supporto fisico più comune per Ethernet è la **coppia di fili di rame intre
 ### 19.2 MAC Address
 
 Un **MAC address** (Media Access Control) identifica univocamente un'interfaccia di rete a livello data link. È composto da 48 bit:
-- **1 bit** OUI di tipo: `0` = unicast, `1` = multicast/broadcast
-- **1 bit** OUI: `0` = globally unique, `1` = locally administered
-- **22 bit** OUI (Organizationally Unique Identifier): assegnato dall'IEEE al produttore
+- **1 bit** (I/G flag): `0` = unicast (individual), `1` = multicast/broadcast (group)
+- **1 bit** (U/L flag): `0` = globally unique (universal), `1` = locally administered
+- **22 bit**: resto dell'OUI (Organizationally Unique Identifier) assegnato dall'IEEE al produttore; i 24 bit dell'OUI includono anche i due flag precedenti
 - **24 bit**: assegnato dal produttore alla singola NIC
 
 Un indirizzo MAC è di **unicast** se il primo byte è pari (seconda cifra esadecimale del primo byte è 0, 2, 4, 6, 8, A, C, E).
@@ -1603,7 +1603,8 @@ DHCP permette a un host di configurare automaticamente la propria rete al moment
 
 | Standard | Nome commerciale | Frequenza | Velocità max |
 |---|---|---|---|
-| 802.11b/g | Wi-Fi 4 | 2,4 GHz | 54 Mbps |
+| 802.11b | — | 2,4 GHz | 11 Mbps |
+| 802.11g | — | 2,4 GHz | 54 Mbps |
 | 802.11n | Wi-Fi 4 | 2,4 / 5 GHz | 600 Mbps |
 | 802.11ac | Wi-Fi 5 | 5 GHz | ~3,5 Gbps |
 | 802.11ax | Wi-Fi 6/6E | 2,4 / 5 / 6 GHz | ~9,6 Gbps |
@@ -1701,7 +1702,7 @@ La velocità di trasmissione Wi-Fi non è fissa ma si adatta alla qualità del c
 
 Ogni produttore implementa un algoritmo proprietario per selezionare il MCS ottimale in base alle condizioni del canale.
 
-### 20.11 Clear Channel Assignment (Multi-channel)
+### 20.11 Clear Channel Assessment (CCA, Multi-channel)
 
 Quando una stazione vuole trasmettere su più canali aggregati:
 1. Invia un **RTS** su ciascuno dei canali che vuole usare
